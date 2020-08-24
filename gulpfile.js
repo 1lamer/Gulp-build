@@ -1,6 +1,6 @@
 //Названия папкок с исходниками и с готовой сборкой
-let sourceFolder = "app/"
-let projectFolder = "dist/"
+let sourceFolder = "app/";
+let projectFolder = require('path').basename(__dirname) + "/";
 
 // Определяем переменную "preprocessor"
 let preprocessor = 'scss'; 
@@ -32,12 +32,28 @@ const imagemin = require('gulp-imagemin');
 // Подключаем модуль gulp-newer
 const newer = require('gulp-newer');
  
+// Подключаем модуль gulp-webp для конвертации в webp формат
+const webp = require('gulp-webp');
+
+// Подключаем модуль gulp-webp-html для автоматического подключения webp в html файл
+const webphtml = require('gulp-webp-html');
+
+// Подключаем модуль gulp-webpcss для автоматического подключения webp в css файл
+//const webpcss = require('gulp-webpcss');
+
 // Подключаем модуль del
 const del = require('del');
 
 //Подключаем модуль gulp-file-include
 const fileInclude = require('gulp-file-include');
- 
+
+//Подключаем модули gulp-ttf2woff, gulp-ttf2woff2 и gulp-fonter для конвертации шрифтов
+const ttf2woff = require('gulp-ttf2woff');
+const ttf2woff2 = require('gulp-ttf2woff2');
+const fonter = require('gulp-fonter');
+
+
+
 // Определяем логику работы Browsersync
 function browsersync() {
 	browserSync.init({ // Инициализация Browsersync
@@ -51,6 +67,7 @@ function browsersync() {
 function html() {
 	return src([sourceFolder + '*.html', '!' + sourceFolder + '_*.html'])
 	.pipe(fileInclude())
+	.pipe(webphtml())
 	.pipe(dest(projectFolder))
 }
 
@@ -66,34 +83,71 @@ function scripts() {
 	.pipe(browserSync.stream()) // Триггерим Browsersync для обновления страницы
 }
  
+
 function styles() {
 	return src(sourceFolder + preprocessor + '/style.' + preprocessor + '') // Выбираем источник: "app/sass/main.sass" или "app/less/main.less"
 	.pipe(eval(preprocessor)()) // Преобразуем значение переменной "preprocessor" в функцию
 	.pipe(concat('style.min.css')) // Конкатенируем в файл app.min.js
-	.pipe(autoprefixer({ overrideBrowserslist: ['last 10 versions'], grid: true })) // Создадим префиксы с помощью Autoprefixer
+	.pipe(autoprefixer({ overrideBrowserslist: ['last 10 versions'], cascade: true, grid: true })) // Создадим префиксы с помощью Autoprefixer
 	.pipe(cleancss( { level: { 1: { specialComments: 0 } }/* , format: 'beautify' */ } )) // Минифицируем стили
 	.pipe(dest(projectFolder + 'css/')) // Выгрузим результат в папку "app/css/"
 	.pipe(browserSync.stream()) // Сделаем инъекцию в браузер
 }
  
+
 function images() {
 	return src(sourceFolder + 'img/**/*') // Берём все изображения из папки источника
+	.pipe( 
+		webp({
+			quality: 70
+		})
+	)//Конвертация в формат webp
+	.pipe(dest(projectFolder + 'img/')) // Выгружаем конвертированные изображения в папку назначения
+	.pipe(src(sourceFolder + 'img/**/*'))
 	.pipe(newer(sourceFolder + 'img/**/*')) // Проверяем, было ли изменено (сжато) изображение ранее
-	.pipe(imagemin()) // Сжимаем и оптимизируем изображеня
+	.pipe(imagemin([
+		imagemin.gifsicle({interlaced: true}),
+	    imagemin.mozjpeg({progressive: true}),
+	    imagemin.optipng({optimizationLevel: 3}),
+	    imagemin.svgo({
+	        plugins: [
+	            {removeViewBox: false},
+	            {cleanupIDs: false}
+	        ]
+	    })
+	])) // Сжимаем и оптимизируем изображеня)) 
 	.pipe(dest(projectFolder + 'img/')) // Выгружаем оптимизированные изображения в папку назначения
+	.pipe(browserSync.stream()) // Сделаем инъекцию в браузер
 }
 
 
+//Конвертируем и выгружаем шрифты
 function fonts() {
-	return src(sourceFolder + 'fonts/**/*')
+	 src(sourceFolder + 'fonts/*.ttf')
+	.pipe(ttf2woff())
 	.pipe(dest(projectFolder + 'fonts/'))
+	return src(sourceFolder + 'fonts/*.ttf')
+	.pipe(ttf2woff2())
+	.pipe(dest(projectFolder + 'fonts/'))
+
 }
- 
+
+
+//Конвертируем шрифты из OTF в TTF
+function otf2ttf() {
+	return src([sourceFolder + 'fonts/*.otf'])
+	.pipe(fonter({
+		formats: ['ttf']
+	}))
+	.pipe(dest(sourceFolder + 'fonts/'));
+}
+
 
 function cleanimg() {
-	return del(sourceFolder + 'img/**/*', { force: true }) // Удаляем всё содержимое папки "app/images/"
+	return del(projectFolder + 'img/**/*', { force: true }) // Удаляем всё содержимое папки "app/images/"
 }
  
+
 function buildcopy() {
 	return src([ // Выбираем нужные файлы
 		sourceFolder + 'css/**/*.min.css',
@@ -105,10 +159,12 @@ function buildcopy() {
 	.pipe(dest(projectFolder)) // Выгружаем в папку с финальной сборкой
 }
  
+
 function cleandist() {
 	return del(projectFolder + '**/*', { force: true }) // Удаляем всё содержимое папки "dist/"
 }
  
+
 function startwatch() {
  
 	// Выбираем все файлы JS в проекте, а затем исключим с суффиксом .min.js
@@ -122,10 +178,13 @@ function startwatch() {
 	watch(sourceFolder + '**/*.html').on('change', html);
  
 	// Мониторим папку-источник изображений и выполняем images(), если есть изменения
-	watch(sourceFolder + 'img/src/**/*', images);
+	watch(sourceFolder + 'img/**/*', cleanimg);
+	watch(sourceFolder + 'img/**/*', images);
  
 }
  
+
+
 // Экспортируем функцию browsersync() как таск browsersync. Значение после знака = это имеющаяся функция.
 exports.browsersync = browsersync;
 
@@ -141,7 +200,11 @@ exports.styles = styles;
 // Экспорт функции images() в таск images
 exports.images = images;
 
+// Экспорт функции fonts() в таск fonts
 exports.fonts = fonts;
+
+// Экспорт функции otf2ttf() в таск otf2ttf
+exports.otf2ttf = otf2ttf;
  
 // Экспортируем функцию cleanimg() как таск cleanimg
 exports.cleanimg = cleanimg;
